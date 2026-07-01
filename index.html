@@ -368,7 +368,7 @@ const JSONBIN_API_KEY = '$2a$10$9G/zVtg6N9gzAIP8iZBQM.HVSziNcadjy2Sg3tn28KjMOB/r
 // Rempli une seule fois au premier lancement (voir createBin()), puis
 // envoyé à Claude pour être codé en dur ici de façon définitive.
 let JSONBIN_BIN_ID = '';
-let idPromptShown = false;
+let idBannerShown = false;
 
 let appState = { players: [], passwordHash: null, roster: [] };
 let players = [];
@@ -453,14 +453,30 @@ async function loadState(silent){
 }
 
 function maybePromptForId(){
-  // Tant que Claude n'a pas codé l'ID en dur dans le fichier, on le
-  // redemande une fois par chargement de page — dès que ce sera fait,
-  // cette fonction ne fera plus jamais rien.
-  if(JSONBIN_BIN_ID && !idPromptShown){
-    idPromptShown = true;
-    setTimeout(()=>{
-      prompt('Configuration à finaliser (une seule fois) : copie cet identifiant (Ctrl+C) et envoie-le à Claude :', JSONBIN_BIN_ID);
-    }, 400);
+  // Tant que Claude n'a pas codé l'ID en dur dans le fichier, on affiche
+  // un bandeau (plus fiable qu'une popup native, souvent bloquée par les
+  // navigateurs mobiles) avec l'identifiant à copier et à envoyer à
+  // Claude — dès que ce sera fait, cette fonction ne fera plus rien.
+  if(JSONBIN_BIN_ID && !idBannerShown){
+    idBannerShown = true;
+    const banner = document.createElement('div');
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:100;background:var(--gold);color:var(--ink);padding:12px 16px;font-size:13px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font-family:"Work Sans",sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.4);';
+    banner.innerHTML = `
+      <span>Configuration à finaliser (une seule fois) : copie cet identifiant et envoie-le à Claude :</span>
+      <code style="background:var(--ink);color:var(--gold-bright);padding:4px 8px;border-radius:4px;font-family:'IBM Plex Mono',monospace;">${JSONBIN_BIN_ID}</code>
+      <button id="copyBinId" style="background:var(--ink);color:var(--gold-bright);border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-weight:600;">Copier</button>
+      <button id="closeBinBanner" style="background:transparent;color:var(--ink);border:1px solid var(--ink);padding:6px 10px;border-radius:4px;cursor:pointer;">Fermer</button>
+    `;
+    document.body.prepend(banner);
+    document.getElementById('copyBinId').addEventListener('click', async ()=>{
+      try{
+        await navigator.clipboard.writeText(JSONBIN_BIN_ID);
+        toast('Identifiant copié !');
+      }catch(e){
+        toast("Copie auto impossible, sélectionne l'identifiant à la main.");
+      }
+    });
+    document.getElementById('closeBinBanner').addEventListener('click', ()=> banner.remove());
   }
 }
 
