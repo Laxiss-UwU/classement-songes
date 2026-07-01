@@ -363,11 +363,11 @@
 // Contrairement à un jeton GitHub, JSONBin ne fait pas de révocation
 // automatique des clés exposées publiquement — c'est pour ça qu'on
 // utilise ce service plutôt qu'un jeton GitHub.
-const JSONBIN_API_KEY = '$2a$10$9G/zVtg6N9gzAIP8iZBQM.HVSziNcadjy2Sg3tn28KjMOB/rNsicq';
+const JSONBIN_API_KEY = '$2a$10$k79e1kzSkyLKRX1QxM1kvOc10wddj2XPp/lOoMUTjcZsQ2j44hh72';
 
 // Rempli une seule fois au premier lancement (voir createBin()), puis
 // envoyé à Claude pour être codé en dur ici de façon définitive.
-let JSONBIN_BIN_ID = '';
+let JSONBIN_BIN_ID = '6a459b69f5f4af5e29508900';
 let idBannerShown = false;
 
 let appState = { players: [], passwordHash: null, roster: [] };
@@ -431,7 +431,6 @@ async function loadState(silent){
     await createBin();
   }
   if(!JSONBIN_BIN_ID) return;
-  maybePromptForId();
   try{
     const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
       headers:{ 'X-Master-Key': JSONBIN_API_KEY }
