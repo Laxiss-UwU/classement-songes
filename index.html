@@ -352,25 +352,20 @@
 
   <footer>
     Classement par valeur de drop en songes sur le mois en cours.
-    <div id="binIdDisplay" style="margin-top:6px;font-size:10px;opacity:0.5;"></div>
   </footer>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script>
-// ---- Stockage en ligne via JSONBin.io ----
-// Cette clé est visible par quiconque regarde le code source de la page.
-// Au pire, quelqu'un pourrait lire/modifier le classement directement via
-// l'API JSONBin — pas un enjeu de sécurité critique pour ce projet.
-const JSONBIN_API_KEY = '$2a$10$9G/zVtg6N9gzAIP8iZBQM.HVSziNcadjy2Sg3tn28KjMOB/rNsicq';
-
-// Rempli automatiquement au tout premier lancement (voir createBin()).
-// Une fois que tu as l'identifiant, envoie-le à Claude pour qu'il soit
-// codé en dur ici de façon permanente, sinon un nouveau "bin" (donc un
-// classement vide) sera recréé à chaque fois que le cache du navigateur
-// est vidé.
-let JSONBIN_BIN_ID = '';
+// ---- Stockage en ligne via un GitHub Gist ----
+// Ce jeton et cet identifiant sont visibles par quiconque regarde le code
+// source de la page. Le jeton n'a que la permission "gist", donc au pire
+// quelqu'un pourrait lire/modifier ce gist précis — pas un enjeu de
+// sécurité critique pour ce projet.
+const GITHUB_TOKEN = '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';
+const GIST_ID = '8f291b842bbef009c1b035d95ae6d034';
+const GIST_FILE = 'classement.json';
 
 let appState = { players: [], passwordHash: null, roster: [] };
 let players = [];
@@ -401,45 +396,15 @@ async function sha256(text){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-async function createBin(){
-  try{
-    const res = await fetch('https://api.jsonbin.io/v3/b', {
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'X-Master-Key': JSONBIN_API_KEY,
-        'X-Bin-Name':'classement-songeurs-fous'
-      },
-      body: JSON.stringify({ players: [], passwordHash: null, roster: [] })
-    });
-    if(!res.ok) throw new Error('create failed');
-    const json = await res.json();
-    JSONBIN_BIN_ID = json.metadata.id;
-    localStorage.setItem('temp-bin-id', JSONBIN_BIN_ID);
-    setTimeout(()=>{
-      alert("Stockage créé avec succès !\n\nCopie cet identifiant et envoie-le à Claude pour le rendre permanent :\n\n" + JSONBIN_BIN_ID);
-    }, 300);
-  }catch(e){
-    toast("Impossible de créer le stockage en ligne. Vérifie ta connexion.");
-  }
-}
-
 async function loadState(silent){
-  if(!JSONBIN_BIN_ID){
-    JSONBIN_BIN_ID = localStorage.getItem('temp-bin-id') || '';
-  }
-  if(!JSONBIN_BIN_ID){
-    await createBin();
-  }
-  if(!JSONBIN_BIN_ID) return;
-  showBinId();
   try{
-    const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
-      headers:{ 'X-Master-Key': JSONBIN_API_KEY }
+    const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+      headers:{ 'Accept': 'application/vnd.github+json' }
     });
     if(!res.ok) throw new Error('fetch failed');
     const json = await res.json();
-    appState = json.record || { players: [], passwordHash: null, roster: [] };
+    const raw = json.files && json.files[GIST_FILE] ? json.files[GIST_FILE].content : null;
+    appState = raw ? JSON.parse(raw) : { players: [], passwordHash: null, roster: [] };
     players = appState.players || [];
     roster = appState.roster || [];
     if(editingRowId === null){ render(); renderRoster(); }
@@ -448,18 +413,16 @@ async function loadState(silent){
   }
 }
 
-function showBinId(){
-  const el = document.getElementById('binIdDisplay');
-  if(el && JSONBIN_BIN_ID) el.textContent = 'ID technique : ' + JSONBIN_BIN_ID;
-}
-
 async function saveState(){
-  if(!JSONBIN_BIN_ID) return false;
   try{
-    const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
-      method:'PUT',
-      headers:{ 'Content-Type':'application/json', 'X-Master-Key': JSONBIN_API_KEY },
-      body: JSON.stringify(appState)
+    const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+      method:'PATCH',
+      headers:{
+        'Content-Type':'application/json',
+        'Accept':'application/vnd.github+json',
+        'Authorization':'token ' + GITHUB_TOKEN
+      },
+      body: JSON.stringify({ files:{ [GIST_FILE]: { content: JSON.stringify(appState) } } })
     });
     return res.ok;
   }catch(e){
