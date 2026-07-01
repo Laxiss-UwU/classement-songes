@@ -358,14 +358,17 @@
 <div class="toast" id="toast"></div>
 
 <script>
-// ---- Stockage en ligne via un GitHub Gist ----
-// Ce jeton et cet identifiant sont visibles par quiconque regarde le code
-// source de la page. Le jeton n'a que la permission "gist", donc au pire
-// quelqu'un pourrait lire/modifier ce gist précis — pas un enjeu de
-// sécurité critique pour ce projet.
-const GITHUB_TOKEN = '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';
-const GIST_ID = '8f291b842bbef009c1b035d95ae6d034';
-const GIST_FILE = 'classement.json';
+// ---- Stockage en ligne via JSONBin.io ----
+// Cette clé est visible par quiconque regarde le code source de la page.
+// Contrairement à un jeton GitHub, JSONBin ne fait pas de révocation
+// automatique des clés exposées publiquement — c'est pour ça qu'on
+// utilise ce service plutôt qu'un jeton GitHub.
+const JSONBIN_API_KEY = '$2a$10$9G/zVtg6N9gzAIP8iZBQM.HVSziNcadjy2Sg3tn28KjMOB/rNsicq';
+
+// Rempli une seule fois au premier lancement (voir createBin()), puis
+// envoyé à Claude pour être codé en dur ici de façon définitive.
+let JSONBIN_BIN_ID = '';
+let idPromptShown = false;
 
 let appState = { players: [], passwordHash: null, roster: [] };
 let players = [];
@@ -396,45 +399,78 @@ async function sha256(text){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-async function loadState(silent){
+async function createBin(){
   try{
-    // Requête authentifiée : limite de 5000/h au lieu de 60/h en anonyme,
-    // ce qui évitait le "classement qui disparaît" quand la limite était
-    // atteinte (le polling + plusieurs visiteurs la dépassaient très vite).
-    const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
+    const res = await fetch('https://api.jsonbin.io/v3/b', {
+      method:'POST',
       headers:{
-        'Accept': 'application/vnd.github+json',
-        'Authorization': 'token ' + GITHUB_TOKEN
-      }
+        'Content-Type':'application/json',
+        'X-Master-Key': JSONBIN_API_KEY,
+        'X-Bin-Name':'classement-songeurs-fous'
+      },
+      body: JSON.stringify({
+        players: [],
+        passwordHash: null,
+        roster: ['Brakou', 'Riko', 'Kaffem']
+      })
+    });
+    if(!res.ok) throw new Error('create failed');
+    const json = await res.json();
+    JSONBIN_BIN_ID = json.metadata.id;
+    localStorage.setItem('temp-bin-id', JSONBIN_BIN_ID);
+  }catch(e){
+    toast("Impossible de créer le stockage en ligne. Vérifie ta connexion.");
+  }
+}
+
+async function loadState(silent){
+  if(!JSONBIN_BIN_ID){
+    JSONBIN_BIN_ID = localStorage.getItem('temp-bin-id') || '';
+  }
+  if(!JSONBIN_BIN_ID){
+    await createBin();
+  }
+  if(!JSONBIN_BIN_ID) return;
+  maybePromptForId();
+  try{
+    const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
+      headers:{ 'X-Master-Key': JSONBIN_API_KEY }
     });
     if(!res.ok) throw new Error('fetch failed: ' + res.status);
     const json = await res.json();
-    const raw = json.files && json.files[GIST_FILE] ? json.files[GIST_FILE].content : null;
-    if(raw === null) throw new Error('missing file in gist response');
-    const parsed = JSON.parse(raw);
+    const record = json.record;
+    if(!record) throw new Error('empty record');
     // On ne remplace l'état affiché que si la réponse est valide, pour ne
     // jamais effacer ce qui est déjà affiché en cas d'erreur réseau/API.
-    appState = parsed;
+    appState = record;
     players = appState.players || [];
     roster = appState.roster || [];
     if(editingRowId === null){ render(); renderRoster(); }
   }catch(e){
-    // On NE TOUCHE PAS à players/roster ici : une erreur de chargement ne
-    // doit jamais vider ce qui est déjà à l'écran.
+    // On NE TOUCHE PAS à players/roster ici en cas d'erreur.
     if(!silent) toast('Impossible de charger le classement (réessaie dans quelques secondes).');
   }
 }
 
+function maybePromptForId(){
+  // Tant que Claude n'a pas codé l'ID en dur dans le fichier, on le
+  // redemande une fois par chargement de page — dès que ce sera fait,
+  // cette fonction ne fera plus jamais rien.
+  if(JSONBIN_BIN_ID && !idPromptShown){
+    idPromptShown = true;
+    setTimeout(()=>{
+      prompt('Configuration à finaliser (une seule fois) : copie cet identifiant (Ctrl+C) et envoie-le à Claude :', JSONBIN_BIN_ID);
+    }, 400);
+  }
+}
+
 async function saveState(){
+  if(!JSONBIN_BIN_ID) return false;
   try{
-    const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-      method:'PATCH',
-      headers:{
-        'Content-Type':'application/json',
-        'Accept':'application/vnd.github+json',
-        'Authorization':'token ' + GITHUB_TOKEN
-      },
-      body: JSON.stringify({ files:{ [GIST_FILE]: { content: JSON.stringify(appState) } } })
+    const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
+      method:'PUT',
+      headers:{ 'Content-Type':'application/json', 'X-Master-Key': JSONBIN_API_KEY },
+      body: JSON.stringify(appState)
     });
     return res.ok;
   }catch(e){
@@ -707,8 +743,17 @@ editToggle.addEventListener('click', async ()=>{
   }
 });
 
+function isUserTyping(){
+  const active = document.activeElement;
+  if(!active) return false;
+  const typingIds = ['inpName', 'inpKamas', 'inpRosterName'];
+  return typingIds.includes(active.id) || active.classList.contains('edit-name') || active.classList.contains('edit-kamas');
+}
+
 function startPolling(){
-  pollTimer = setInterval(()=>{ if(editingRowId === null) loadState(true); }, 30000);
+  pollTimer = setInterval(()=>{
+    if(editingRowId === null && !isUserTyping()) loadState(true);
+  }, 30000);
 }
 
 loadState().then(startPolling);
