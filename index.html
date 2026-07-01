@@ -363,7 +363,7 @@
 // source de la page. Le jeton n'a que la permission "gist", donc au pire
 // quelqu'un pourrait lire/modifier ce gist précis — pas un enjeu de
 // sécurité critique pour ce projet.
-const GITHUB_TOKEN = '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';
+const GITHUB_TOKEN = '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';
 const GIST_ID = '8f291b842bbef009c1b035d95ae6d034';
 const GIST_FILE = 'classement.json';
 
@@ -398,18 +398,30 @@ async function sha256(text){
 
 async function loadState(silent){
   try{
+    // Requête authentifiée : limite de 5000/h au lieu de 60/h en anonyme,
+    // ce qui évitait le "classement qui disparaît" quand la limite était
+    // atteinte (le polling + plusieurs visiteurs la dépassaient très vite).
     const res = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
-      headers:{ 'Accept': 'application/vnd.github+json' }
+      headers:{
+        'Accept': 'application/vnd.github+json',
+        'Authorization': 'token ' + GITHUB_TOKEN
+      }
     });
-    if(!res.ok) throw new Error('fetch failed');
+    if(!res.ok) throw new Error('fetch failed: ' + res.status);
     const json = await res.json();
     const raw = json.files && json.files[GIST_FILE] ? json.files[GIST_FILE].content : null;
-    appState = raw ? JSON.parse(raw) : { players: [], passwordHash: null, roster: [] };
+    if(raw === null) throw new Error('missing file in gist response');
+    const parsed = JSON.parse(raw);
+    // On ne remplace l'état affiché que si la réponse est valide, pour ne
+    // jamais effacer ce qui est déjà affiché en cas d'erreur réseau/API.
+    appState = parsed;
     players = appState.players || [];
     roster = appState.roster || [];
     if(editingRowId === null){ render(); renderRoster(); }
   }catch(e){
-    if(!silent) toast('Impossible de charger le classement.');
+    // On NE TOUCHE PAS à players/roster ici : une erreur de chargement ne
+    // doit jamais vider ce qui est déjà à l'écran.
+    if(!silent) toast('Impossible de charger le classement (réessaie dans quelques secondes).');
   }
 }
 
@@ -696,7 +708,7 @@ editToggle.addEventListener('click', async ()=>{
 });
 
 function startPolling(){
-  pollTimer = setInterval(()=>{ if(editingRowId === null) loadState(true); }, 20000);
+  pollTimer = setInterval(()=>{ if(editingRowId === null) loadState(true); }, 30000);
 }
 
 loadState().then(startPolling);
